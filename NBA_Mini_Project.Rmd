@@ -1,0 +1,873 @@
+---
+title: "NBA Mini Project"
+output:
+  html_document:
+    theme: cerulean   
+    toc: true
+    toc_float: true
+    number_sections: true
+    fig_caption: true
+date: "2021-01-22"
+---
+
+
+**Lindsay Whipple**
+
+**St. Lawrence University, STAT 356**
+
+**NBA Mini Project**
+
+**1/22/21**
+
+
+# **Introduction**
+
+For this project I am looking at the NBA dataset. This dataset includes NBA team performance data from 1979 through 2015, covering various in-game and team-level statistics. This data set had six different variables: **seasongame** (if the game was in the regular season - 1, or if it was out of season - 0), **is_playoffs** (playoff game - 1, non-playoff game - 0), **elo_i** (the team's current elo rating, which is a measure of their ability), **elo_prob** (the probability that the team will win the game based on their elo rating), **game_location** (home - H, away - A), and **results** (win - 1, loss - 0). Using this data I set out to look at how many points the top and bottom five teams scored in the 2000's. Additionally, I wanted to compare points with opponent points and points with Elo ratings to see if there is any sort of correlation there. 
+
+```{r}
+# Load Libraries
+library(ggplot2)
+library(gganimate)
+library(ggthemes)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(lubridate)
+library(flexdashboard)
+library(forecast)
+library(broom)
+library(knitr)
+library(ggcorrplot)
+library(Metrics)
+```
+
+
+```{r}
+# Load Data
+nba_df <- read_csv("~/Desktop/NBA Mini Project/nbaallelo.csv")
+nba_df <- nba_df %>% select(-c('_iscopy', notes, gameorder, elo_n, opp_elo_n, win_equiv))
+nba_final <- nba_df %>% mutate(result = case_when(game_result == "W" ~ 1,
+                                                  game_result == "L" ~ 0)) %>%
+  mutate(date_game = mdy(date_game),
+         month = month(date_game, label = TRUE),
+         weekday = wday(date_game, label = TRUE)) %>%
+  select(-game_result)
+```
+
+
+**Get Top and Bottom Five Scoring Teams**
+
+```{r}
+# Calculate Top and Bottom Five Teams from 2000-2015
+team_scores <-nba_df %>%
+  filter(year_id %in% 2000:2015, seasongame == 1) %>%
+  group_by(fran_id) %>%
+  summarize(avg_pts = mean(pts, na.rm = TRUE)) %>%
+  arrange(desc(avg_pts))
+
+top_teams <- team_scores$fran_id[1:5]
+bottom_teams <- tail(team_scores$fran_id, 5)
+
+nba_top <- filter(nba_df, fran_id %in% top_teams, year_id %in% 2000:2015, seasongame == 1)
+nba_bottom <- filter(nba_df, fran_id %in% bottom_teams, year_id %in% 2000:2015, seasongame == 1)
+```
+
+
+
+# **Average Points Per Game**
+## **Top Five Graphs**
+
+**Static Graph:**
+
+```{r}
+# Static Plot for Top Five Teams' Average PPG - Regular Season
+p <- ggplot(
+  nba_top,
+  aes(x = year_id, y = pts, colour = fran_id)
+  ) +
+  geom_line(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Average PPG (Top Five)", x = "Year", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+p
+```
+
+
+**Animated Graph:**
+
+```{r}
+# Animated Plot for Top Five Teams' Average PPG - Regular Season
+p <- ggplot(
+  nba_top,
+  aes(x = year_id, y = pts, colour = fran_id)
+  ) +
+  geom_point(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Average PPG (Top Five)", x = "Year", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+p + transition_time(year_id) +
+  labs(title = "Year: {frame_time}")
+```
+
+**Graph Analysis:**
+
+This graph is looking at the average amount of points scored per game by the top five NBA franchises teams (Bulls, Heat, Lakers, Magic, and Spurs) over a fifteen year time period. Each team in this graph shows some yearly variability, but a few patterns do stand out: The Warriors show the clearest signs of points per game variability having both the highest and lowest spikes of all top 5 teams. The last spike around 2014 is also noticeable and may reflect their evolution leading up to the NBA finals in 2015. The Spurs show relative consistency throughout these fifteen years, ranging from an average of about ninety to one hundred and ten points per game. This is consistent with their general success in the NBA these years. Still hovering around the ninety to one hundred and ten points per game range, the Mavericks and Pacers showed inconsistent scoring averages, occasionally peaking during seasons where they made playoffs. The Celtics show consistency throughout the years averaging around one hundred points per game. There is a noticeable spike towards the end of the fifteen years.
+
+
+## **Home vs. Away Games** 
+
+```{r}
+nba_top_homeaway <- nba_top %>%
+  filter(!is.na(game_location)) %>%
+  group_by(fran_id, game_location, year_id) %>%
+  summarize(avg_pts = mean(pts, na.rm = TRUE), .groups = "drop")
+```
+
+```{r}
+ggplot(nba_top_homeaway, aes(x = year_id, y = avg_pts, color = fran_id)) +
+  geom_line(alpha = 0.7) +
+  scale_color_viridis_d() +
+  facet_wrap(~ game_location, labeller = as_labeller(c(H = "Home Games", A = "Away Games"))) +
+  theme_fivethirtyeight() +
+  labs(
+    title = "Average PPG: Home vs. Away (Top Five)",
+    x = "Year",
+    y = "Points",
+    color = "Franchise"
+  ) +
+  theme(axis.title.x = element_text(), axis.title.y = element_text())
+```
+
+```{r}
+ggplot(nba_top_homeaway, aes(x = year_id, y = avg_pts, color = game_location)) +
+  geom_line(alpha = 0.7) +
+  facet_wrap(~ fran_id) +
+  scale_color_manual(values = c("H" = "#1b9e77", "A" = "#d95f02"),
+                     labels = c("Home", "Away")) +
+  theme_fivethirtyeight() +
+  labs(
+    title = "Home vs. Away Scoring Trends",
+    x = "Year",
+    y = "Avg Points",
+    color = "Location"
+  ) +
+  theme(axis.title.x = element_text(), axis.title.y = element_text())
+```
+
+**Home vs. Away Scoring Trends Top Five Analysis:**
+These graphs compare the average amount of points scored at home games versus away games. These graphs reinforce the idea of a home court advantage, for all five top performing teams, home games tend to yield higher points per game averages than away games. One team however stands out more than others here and that is the Warriors. They seem to consistently score low during home games at an average of around eighty five points per game. Away games, they can be seen to have some much higher peaks of scoring at over one hundred and twenty points per game.  
+
+
+
+
+## **Bottom Five Graphs**
+
+**Static Graph:**
+
+```{r}
+# Static Plot for Bottom Five Teams' Average PPG - Regular Season
+p2 <- ggplot(
+  nba_bottom,
+  aes(x = year_id, y = pts, colour = fran_id)
+) +
+  geom_line(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  #scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Average PPG (Bottom Five)", x = "Year", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+
+p2
+```
+
+
+**Animated Graph:**
+
+```{r}
+# Animated Plot for Bottom Five Teams' Average PPG - Regular Season
+p2 <- ggplot(
+  nba_bottom,
+  aes(x = year_id, y = pts, colour = fran_id)
+) +
+  geom_point(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Average Points Scored per Game (Bottom Five)", x = "Year", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+p2 + transition_time(pts) +
+  labs(title = "Points: {frame_time}")
+```
+
+**Graph Analysis:**
+
+This graph shows the average scores per game for the bottom five NBA teams (Cavaliers, Grizzlies, Hornets, Sixers, and Wizards) from 2000-2015. Right away, it is noticeable that these teams tend to score less points on average (eighty - one hundred) than the top five (ninety - one hundred and ten). The Hornets and Sixers show lots of spikes throughout these years. Most noticeably is the sharp drop/spike in 2010. These peaks likely represent major roster changes or rebuilding phases. The Cavaliers show two noticeable drops, one around 2003 and another around 2007. Despite these drops they appear to show a gradual upward trend. The spike we see after 2003 is likely related to their first round draft pick that year, LeBron James. The Grizzlies appear to have wide variability in their average points per game over this fifteen year period. This team seems to have the most extreme highs and lows, possibly reflecting their shift from Vancouver to Memphis during the earlier years in this range.The Wizards show a relatively consistent average points per game hovering between eighty and one hundred. 
+
+
+## **Home vs. Away Games**
+
+```{r}
+nba_bottom_homeaway <- nba_bottom %>%
+  filter(!is.na(game_location)) %>%
+  group_by(fran_id, game_location, year_id) %>%
+  summarize(avg_pts = mean(pts, na.rm = TRUE), .groups = "drop")
+```
+
+
+```{r}
+ggplot(nba_bottom_homeaway, aes(x = year_id, y = avg_pts, color = fran_id)) +
+  geom_line(alpha = 0.7) +
+  scale_color_viridis_d() +
+  facet_wrap(~ game_location, labeller = as_labeller(c(H = "Home Games", A = "Away Games"))) +
+  theme_fivethirtyeight() +
+  labs(
+    title = "Average PPG: Home vs. Away (Bottom Five)",
+    x = "Year",
+    y = "Points",
+    color = "Franchise"
+  ) +
+  theme(axis.title.x = element_text(), axis.title.y = element_text())
+```
+
+```{r}
+ggplot(nba_bottom_homeaway, aes(x = year_id, y = avg_pts, color = game_location)) +
+  geom_line(alpha = 0.7) +
+  facet_wrap(~ fran_id) +
+  scale_color_manual(values = c("H" = "#1b9e77", "A" = "#d95f02"),
+                     labels = c("Home", "Away")) +
+  theme_fivethirtyeight() +
+  labs(
+    title = "Home vs. Away Scoring Trends",
+    x = "Year",
+    y = "Avg Points",
+    color = "Location"
+  ) +
+  theme(axis.title.x = element_text(), axis.title.y = element_text())
+```
+
+**Analysis:**
+These graphs are comparing home versus away scoring across all five bottom teams. The graphs show a general trend of higher variance for away games (specifically for the Grizzlies and the Wizards) with points ranings from under seventy to over one hundred and ten. Home games appear to exhibit a bit more stability, but not necessarily a boost. Unlike the higher ranked teams, these bottom five franchises don't seem to consistently benefit from the home court advantage and instead displays more erratic scoring patterns most likely influenced by roster instability, coaching changes, or other franchise type transitions. 
+
+
+# **Points vs. Opponent Points**
+## **Top Five Graphs**
+
+**Static Graph:**
+
+```{r}
+# Static Graph for Points vs. Opponent Points Scored (Top Five) - Regular Season
+p <- ggplot(
+  nba_top,
+  aes(x = opp_pts, y = pts, colour = fran_id)
+) +
+  geom_line(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  labs(title = "Points vs. Opponents Points (Top Five)", x = "Points", y = "Opponent Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+p
+```
+
+
+**Animated Graph:**
+
+```{r}
+# Animated Graph for Points vs. Opponent Points Scored (Top Five)
+p2 <- ggplot(
+  nba_top, 
+  aes(x = opp_pts, y = pts, colour = fran_id)
+) +
+  geom_point(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Points vs. Opponent Points (Top Five)", x = "Points", y = "Opponent Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+
+p2 + transition_time(opp_pts) +
+  labs(title = "Points: {frame_time}")
+```
+
+**Graph Analysis:**
+
+This graph is showing the relationship between points scored and points allowed by the top five NBA teams (Celtics, Mavericks, Pacers, Spurs, and Warriors) from the years of 2000-2015. Some key takeaways from this graph is a very slight upward trend for all five teams. This may suggest that higher-scoring games tend to correlate with higher points allowed including fast-paced games, close matchups, and overtime scenarios. The Warriors (yellow) stand out the most with a wide range of opponent points. Overall, there appears to be some clustering around the ninety to one hundred and ten point range, but there is no strong linear relationship visible suggesting high scores don't necessarily mean weak defense. This also supports a common thought in sports where top teams are successful not just because they outscore their opponents, but because of their ability to maintain control in both offensive and defensive metrics.
+
+## **Top Five Linear Regression**
+
+```{r}
+p <- ggplot(nba_top, aes(x = pts, y = opp_pts, color = fran_id)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.2) +
+  scale_color_viridis_d() +
+  labs(
+    title = "Points vs. Opponent Points (Top Five)",
+    x = "Points",
+    y = "Opponent Points",
+    color = "Franchise"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text(),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+p
+```
+
+```{r}
+# Fit Models
+models_clean <- nba_top %>%
+  group_by(fran_id) %>%
+  summarise(model = list(tryCatch(lm(opp_pts ~ pts, data = pick(everything())), error = function(e) NULL))) %>%
+  filter(!map_lgl(model, is.null)) %>%
+  filter(map_chr(model, class) == "lm")
+
+# Tidy and Glance
+tidy_df <- models_clean %>%
+  mutate(tidy = map(model, tidy)) %>%
+  unnest(tidy) %>%
+  filter(term == "pts") %>%
+  select(fran_id, estimate, std.error, statistic, p.value)
+
+glance_df <- models_clean %>%
+  mutate(glance = map(model, glance)) %>%
+  unnest(glance) %>%
+  select(fran_id, r.squared)
+
+# Final Model
+model_summary <- tidy_df %>%
+  left_join(glance_df, by = "fran_id") %>%
+  rename(
+    Slope = estimate,
+    Std_Error = std.error,
+    t_value = statistic,
+    P_value = p.value,
+    R_squared = r.squared
+  ) %>%
+  arrange(desc(R_squared))
+
+kable(model_summary, digits = 3, caption = "Regression Summary: Points  vs. Opponent Points (Top Five)")
+
+```
+
+
+
+**Analysis:**
+This regression analysis is looking at how scoring and defensive outcomes interact for each of the top five franchises from 2000-2015. Overall, the Spurs are the most predictable and controlled franchise in terms of their scoring-defense balance. The Pacers tend to trend toward mutual high-scoring outcomes, wheres the Warriors, Celtics, and Mavericks display looser relationships, possibly due to inconsistent defense or variable game styles. 
+
+**Spurs**
+The Spurs have a slope of 0.736, an R² value of 0.622, and a p-value of 0.000. This team has the strongest correlation out of all the teams analyzed. This tells us that for every one point increase in scoring, opponents score only approximately 0.74 more points. The high R² value also means that opponent scoring can be reasonably predicted from their own scoring output meaning they likely play in a more structured, and pace-controlled environment. 
+
+**Pacers**
+The Pacers have a slope of 0.953, an R² value of 0.560, and a p-value of 0.001. This team has almost a one to one relation between points scored and allowed. This suggests that high-scoring games often correlate with high defensive concessions, and vice versa. Their style may be a bit less controlled than the Spurs. 
+
+**Warriors**
+The Warriors have a slope of 0.443. an R² value of 0.255, and a p-value of 0.046. This is a low slope with a moderate correlation. With higher scoring for the Warriors, opponents don't tend to increase their scoring at the same rate. This may indicate games where offense dominated regarless of defensive performance. 
+
+**Celtics**
+The Celtics have a slope of 0.525, an R² value of 0.204, and a p-value of 0.079. This shows a low to moderate relationship between points scored and allowed. This may suggest that opponent scoring doesn't heavily correlate with their own, meaning some games they may win with low scores, but others they may win with high scores. This weaker correlation may show that their style of game play may be more widely variable. 
+
+**Mavericks**
+The Mavericks have a slope of 0.494, an R² value of 0.189, and a p-value of 0.092. This is the weakest correlation of the five franchises analyzed. With a flatter slope, it shows that when the Mavericks score more, there is no clear trend of what their opponents follow. This might indicate unbalanced performance, including situations where games were heavily skewed in one direction, maybe blowouts for either team.
+
+
+## **Bottom Five Graphs**
+
+**Static Graph:**
+
+```{r}
+# Static Graph for Points vs. Opponent Points (Bottom Five) - Regular Season
+p <- ggplot(
+  nba_bottom,
+  aes(x = opp_pts, y = pts, colour = fran_id)
+) +
+  geom_line(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  labs(title = "Points vs. Opponents Points (Bottom Five)", x = "Points", y = "Opponent Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+p
+```
+
+**Animated Graph:**
+
+```{r}
+# Animated Graph for Points vs. Opponent Points (Bottom Five) - Regular Season
+p2 <- ggplot(
+  nba_bottom, 
+  aes(x = opp_pts, y = pts, colour = fran_id)
+) +
+  geom_point(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Points vs. Opponent Points (Bottom Five)", x = "Points", y = "Opponent Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+
+p2 + transition_time(opp_pts) +
+  labs(title = "Points: {frame_time}")
+```
+
+**Graph Analysis:**
+
+This graph is showing the relationship between points scored and points allowed by the bottom five NBA teams (Cavaliers, Grizzlies, Hornets, Sixers, and Wizards) from the years of 2000-2015. One main takeaway I see right away is a more general upward trend going from around ninety points scored to one hundred and ten points. This graph shows a wide spread in performance, particularly for the Grizzlies and Hornets who tend to have multiple peaks and points span from eighty to one hundred and twenty. There appears to be less visible clustering around a certain range, showing an inconsistency in performance. 
+
+## **Bottom Five Linear Regression**
+
+```{r}
+p <- ggplot(nba_bottom, aes(x = pts, y = opp_pts, color = fran_id)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.2) +
+  scale_color_viridis_d() +
+  labs(
+    title = "Points vs. Opponent Points (Bottom Five)",
+    x = "Points",
+    y = "Opponent Points",
+    color = "Franchise"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text(),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+p
+```
+
+
+```{r}
+# Fit Model
+bottom_models <- nba_bottom %>%
+  group_by(fran_id) %>%
+  summarise(model = list(tryCatch(lm(opp_pts ~ pts, data = pick(everything())), error = function(e) NULL))) %>%
+  filter(!map_lgl(model, is.null)) %>%
+  filter(map_chr(model, class) == "lm")
+
+# Tidy and Glance
+bottom_tidy <- bottom_models %>%
+  mutate(tidy = map(model, tidy)) %>%
+  unnest(tidy) %>%
+  filter(term == "pts") %>%
+  select(fran_id, estimate, std.error, statistic, p.value)
+
+bottom_glance <- bottom_models %>%
+  mutate(glance = map(model, glance)) %>%
+  unnest(glance) %>%
+  select(fran_id, r.squared)
+
+# Join and Clean
+bottom_summary <- bottom_tidy %>%
+  left_join(bottom_glance, by = "fran_id") %>%
+  rename(
+    Slope = estimate,
+    Std_Error = std.error,
+    t_value = statistic,
+    P_value = p.value,
+    R_squared = r.squared
+  ) %>%
+  arrange(desc(R_squared))
+
+kable(bottom_summary, digits = 3, caption = "Regression Summary: Points vs. Opponent Points (Bottom Five)")
+```
+
+
+**Analysis**
+This regression analysis is looking at how scoring and defensive outcomes interact for each of the bottom five franchises from 2000-2015. Overall, the Grizzlies and Hornets showed the strongest structure among these teams. The Sixers tend to trade points inconsistently, and the Wizards and Cavaliers are not very predictable. 
+
+**Grizzlies**
+The Grizzlies have a slope of 0.650, an R² value of 0.605, and a p-value of 0.000. This team has the strongest correlation among all five of the bottom ranked teams. This slope indicates that when the Grizzlies scored more, opponents don't tend to match them point-for-point, suggesting they have better control in higher scoring games. 
+
+**Hornets**
+The Hornets have a slope of 0.303, an R² value of 0.453, and a p-value of 0.023. This team has a fairly weak slope, but a solid R² value, meaning that their own point scoring isn't strongly related to opponent points scored. 
+
+**Sixers**
+The Sixers have a slope of 0.825, an R² of 0.369, and a p-value of 0.013. This is the highest slope of all the bottom five teams. This indicates a strong correlation where as the Sixers score more, so do their opponents. This shows that many games were loosely defended and probably high-tempo games, aligning with some rebuilding seasons during this time period. 
+
+**Wizards**
+The Wizards have a slope of 0.439, an R² value of 0.166, and a p-value of 0.117. This is a moderate slope, but very low R² value suggesting that the Wizards played with rather erratic game styles including possible inconsistent defense. This tells us that for them, scoring output doesn't predict opponent points. This could potentially reflect shifting rosters and overall team identity. 
+
+**Cavaliers**
+The Cavaliers have a slope of 0.111, an R² value of 0.019, and a p-value of 0.609. This is a very weak slope and basically zero correlation meaning opponent points are completely unrelated to how many points they score. This implies wide variability in game dynamics, possibly influence by pre/post LeBron James years. 
+
+## **Top Five vs. Bottom Five**
+
+```{r}
+model_summary <- model_summary %>%
+  mutate(Group = "Top 5")
+
+bottom_summary <- bottom_summary %>%
+  mutate(Group = "Bottom 5")
+
+combined_models <- bind_rows(model_summary, bottom_summary)
+
+ggplot(combined_models, aes(x = reorder(fran_id, Slope), y = Slope, fill = Group)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Slope of Regression: Points Scored vs. Opponent Points",
+    x = "Team",
+    y = "Slope",
+    fill = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title = element_text()
+  )
+
+ggplot(combined_models, aes(x = reorder(fran_id, R_squared), y = R_squared, fill = Group)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "R² of Regression: Points Scored vs. Opponent Points",
+    x = "Team",
+    y = "R² Value",
+    fill = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title = element_text()
+  )
+
+```
+
+
+**Analysis:**
+These two graphs, slope of regression and R² of regression, look at how closely points scored relate to points allowed. We are looking at the slope of the regression line (how much opponent points change per point scored) and the RR² value (how well opponent points are explained by a team's scoring).
+
+**Slope of Regression**
+
+Does scoring more also mean opponents score more? 
+
+From this chart we can see that top teams, like the Pacers and Spurs for example, have higher slopes (0.95 and 0.74 respectively) meaning their games tend to trend towards mutual high/low scoring. Teams like the Hornets and Cavaliers, with flat slopes, show no real correlation between scoring and points allowed, likely due to inconsistency in game play. Furthermore, bottom ranked teams like the Sixers and Grizzlies surprisingly show steep slopes, indicating that they may score more when the game itself is fast paced. Overall, this shows us that slope can tell us a bit about game style, fast-paced teams that score a lot of points and allow a lot of points whereas other teams see flatter trends. 
+
+**R^2 of Regression**
+
+How well can we predict opponent points from team scoring?
+
+From this chart, we can see that the Spurs, Grizzlies, and Pacers have the highest R² value, showing that team scoring aligns closely with opponent scoring. Other teams like the Mavericks, Wizards, and Cavaliers, have really low R² values, which tells us that their scoring doesn't explain opponent outcomes at all, likely due to a level of inconsistency on the team and game style. Overall, what we can derive from these insights is that the R² value reflects team consistency. Having a high value tends to indicate a more structured and coherent game flow and control. 
+
+
+# **Points Scored vs. Elo Scores**
+## **Top Five Graphs**
+
+**Static Graph:**
+
+```{r}
+# Static Graph for Points vs. Elo Rating (Top Five Teams) - Regular Season
+p <- ggplot(
+  nba_top,
+  aes(x = elo_i, y = pts, colour = fran_id)
+) +
+  geom_line(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() + 
+  theme_fivethirtyeight() +
+  labs(title = "Points vs. Elo Ratings (Top Five)", x = "Elo Rating", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+p
+```
+
+**Animated Graph:**
+```{r}
+# Animated Graph for Points vs. Elo Rating (Top Five Teams) - Regular Season
+p <- ggplot(
+  nba_top,
+  aes(x = elo_i, y = pts, colour = fran_id)
+) +
+  geom_point(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Points vs. Elo Ratings (Top Five)", x = "Elo Score", y = "Points", colour = "Franchise") + theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+
+p + transition_time(elo_i) +
+  labs(title = "Elo Score: {frame_time}")
+```
+
+**Graph Analysis:**
+
+This graph is exploring the relationship between Elo ratings (a measure of team strength) and points scored per game for the top five NBA franchises (Celtics, Mavericks, Pacers, Spurs, and Warriors) from the year 2000-2015. The biggest takeaway from this graph is that there is no clear linear trend meaning teams with higher Elo scores do not necessarily score more points per game. The Warriors probably stand out the most and show a wider scoring range at various Elo scores. Overall, this graph supports the idea that Elo scores are a holistic performance metrics that not only incorporates scoring output, but also win/loss outcomes, opponent strength, and recency. 
+
+
+## **Correlation Matrix**
+
+```{r}
+# Clean Data
+nba_top_corr <- nba_top %>%
+  mutate(
+    result = ifelse(game_result == "W", 1, 0),
+    location_num = ifelse(game_location == "H", 1, 0)
+  ) %>%
+  select(pts, opp_pts, elo_i, result, location_num)
+
+# Compute Correlations
+cor_matrix <- round(cor(nba_top_corr, use = "complete.obs"), 2)
+
+# Plot
+ggcorrplot(cor_matrix, lab = TRUE, lab_size = 3, colors = c("#D73027", "white", "#1A9850"))
+
+```
+
+**Analysis**
+This correlation matrix shows a few subtle, but notable, trends in the performance of the top five NBA teams fro the years 2000-2015. We can see here that the strongest relationship observed is between a team's points scored and their opponents' points scored (r = 0.55). This suggests that high scoring games tend to be mutual. There is also a somewhat moderately negative correlation between points allowed and winning (r = -0.46). This indicates that more points allowed significantly lowers the odds of wining, which reinforces the importance of defense. Something that also stands out is that a team's own points have a weaker positive correlation with winning (r = 0.32), which implies that offense alone doesn't completely drive final outcomes. Finally, game location (home vs. away) appears to have minimal impact on performance or outcomes here. Overall, there are no overwhelmingly strong correlations, which supports the idea that game outcomes are multi-factorial and not driven by any single variable in isolation, especially among more elite teams. 
+
+
+## **Bottom Five Graphs**
+
+**Static Graph:**
+
+```{r}
+# Static Graph for Points vs. Elo Rating (Bottom Five Teams) - Regular Season
+p2 <- ggplot(
+  nba_bottom,
+  aes(x = elo_i, y = pts, colour = fran_id)
+) +
+  geom_line(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Points vs. Elo Ratings (Bottom Five)", x = "Elo Rating", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+
+p2
+```
+
+**Animated Graph:**
+
+```{r}
+# Animated Graph for Points vs. Elo Rating (Bottom Five Teams) - Regular Season
+p2 <- ggplot(
+  nba_bottom, 
+  aes(x = elo_i, y = pts, colour = fran_id)
+) +
+  geom_point(show.legend = TRUE, alpha = 0.7) +
+  scale_color_viridis_d() +
+  scale_size(range = c(2, 12)) +
+  scale_x_log10() +
+  theme_fivethirtyeight() +
+  labs(title = "Points vs. Elo Ratings", x = "Elo Score", y = "Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+
+p2 + transition_time(elo_i) +
+  labs(title = "Elo Score: {frame_time}")
+```
+
+**Graph Analysis:**
+
+This graph is exploring the relationship between Elo ratings (a measure of team strength) and points scored per game for the bottom five NBA franchises (Cavaliers, Grizzlies, Hornets, Sixers, and Wizards) from the year 2000-2015. A key takeaway from this graph is its comparison to the top five teams, this graph shows a lot more inconsistency in the relationship between points scored and Elo scores. While the Elo range seems to range only from approximately 1400-1600, the points scored seem to range more widely from sixety points to over one hundred and ten points (specifically for the Hornets and Grizzlies). Overall, this is more confirmation, even for lower-ranked teams, that scoring alone (lots of points or a certain amount of points) does not guarantee success or push their Elo Scores up. 
+
+## **Correlation Matrix**
+
+```{r}
+# Clean Data
+nba_bottom_corr <- nba_bottom %>%
+  mutate(
+    result = ifelse(game_result == "W", 1, 0),
+    location_num = ifelse(game_location == "H", 1, 0)
+  ) %>%
+  select(pts, opp_pts, elo_i, result, location_num)
+
+# Compute Correlations
+cor_matrix_bottom <- round(cor(nba_bottom_corr, use = "complete.obs"), 2)
+
+# Plot
+ggcorrplot(cor_matrix_bottom, lab = TRUE, lab_size = 3, colors = c("#D73027", "white", "#1A9850"))
+
+```
+
+
+**Analysis**
+This correlation matrix of the bottom five NBA teams from 2000-2015 shows similar patterns to the top five teams, but have even weaker relationships between performance variables. Once again, the most notable correlation is between a team's points scored and opponent points (r = 0.49), which suggests that when lower-performing teams score more, they often do so when they are playing in high-scoring, less controlled games. Similarly, we see a moderate negative correlation between opponent points and winning (r = -0.46), which once again reinforces the importance of defensive performance. The correlation between points scored and winning (r = 0.34) gives us a slight indication that while offense helps, it does not guarantee outcomes. One thing to note is that the pre-game Elo score is almost completely uncorrelated with every variable, suggesting that Elo ratings may be especially poor predictors for low-ranked teams who might experience more under- or over-performances relative to what is expected. 
+
+
+
+# **Regression Models**
+
+## **Top Regression**
+
+**Static Graph:**
+```{r}
+model <- lm(pts ~ opp_pts + elo_i, data = nba_top)
+nba_top$predicted_pts <- predict(model, newdata = nba_top)
+r_squared <- summary(model)$r.squared
+
+ggplot(nba_top, aes(x = pts, y = predicted_pts, color = fran_id)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  theme_fivethirtyeight() +
+  labs(
+    title = "Top Five Actual vs. Predicted Points", 
+    subtitle = "Model: pts ~ opp_pts + elo_i",
+    x = "Points Scored", 
+    y = "Predicted Points", 
+    colour = "Franchise") +
+  annotate("text",
+           x = max(nba_top$pts) - 10,
+           y = min(nba_top$predicted_pts) + 5,
+           label = paste0("R² = ", round(r_squared, 3)),
+           size = 4,
+           color = "black") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  ) 
+```
+
+**Analysis**
+This scatterplot compares actual points scored with predicted points per game for the top five NBA teams from 2000-2015, using a linear model based on Elo score and opponent points. The dashed diagonal line represents the perfect prediction, most games fall reasonably close to this line, however there is some evident scattering, especially around higher scoring games. This may suggest that the model captures general trends, but lacks precision for extreme performances. 
+
+```{r}
+# Graph by Team
+model <- lm(pts ~ opp_pts + elo_i, data = nba_top)
+nba_top$predicted_pts <- predict(model, newdata = nba_top)
+
+ggplot(nba_top, aes(x = pts, y = predicted_pts, color = fran_id)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  theme_fivethirtyeight() +
+  labs(title = "Top Five Actual vs. Predicted Points", x = "Points Scored", y = "Predicted Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  ) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dotted") + 
+  facet_wrap(~fran_id)
+```
+
+**Analysis**
+This scatterplot evaluates how well the linear model predicts actual game performance across the top five NBA teams. Each subplot is comparing predicted points with actual points scored, with the dashed line once again representing perfect predictions (y = x). The Celtics and the Warriors appear to have the greatest deviation from the ideal line, suggesting that the model frequently under predicts or over predicts their outcomes. The predictions for Spurs and the Pacers tend to be more consistent, making them easier to model. The Mavericks predictions are moderately accurate, but slightly compressed, meaning the model struggles a bit with predicting extremely high or low scoring games. 
+
+```{r}
+rmse(nba_top$pts, nba_top$predicted_pts)
+mae(nba_top$pts, nba_top$predicted_pts)
+```
+
+**Analysis**
+This is telling us that the Root Mean Squared Error is 9.08, meaning, on average, my model's predictions are off by about nine points. In the NBA, nine points is a pretty non-trivial margin, so that while my model does capture general trends, it isn't perfect, which makes sense given the variability in basketball scoring, and the simplicity of my model. Next, the Mean Absolute Error of 7.39 is telling us that on average, my model's predictions are off by about 7.4 points, regardless of direction. Essentially, these errors seem pretty standard for basic regression models in sports data, and it confirms what we can see visually in the scatterplots that the model is good at capturing general scoring patterns, but not the finer details. 
+
+
+## **Bottom Regression**
+**Static Graph:**
+```{r}
+model_bottom <- lm(pts ~ opp_pts + elo_i, data = nba_bottom)
+nba_bottom$predicted_pts <- predict(model_bottom, newdata = nba_bottom)
+r_squared_bottom <- summary(model_bottom)$r.squared
+
+ggplot(nba_bottom, aes(x = pts, y = predicted_pts, color = fran_id)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  theme_fivethirtyeight() +
+  labs(
+    title = "Bottom Five Actual vs. Predicted Points", 
+    subtitle = "Model: pts ~ opp_pts + elo_i",
+    x = "Points Scored", 
+    y = "Predicted Points", 
+    colour = "Franchise") + 
+  annotate("text",
+           x = max(nba_top$pts) - 10,
+           y = min(nba_top$predicted_pts) + 5,
+           label = paste0("R² = ", round(r_squared_bottom, 3)),
+           size = 4,
+           color = "black") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  )
+```
+
+**Analysis**
+This scatter plot compares the actual points scored to the predicted points scored for the bottom five NBA teams from the years 2000-2015, using a linear model based on Elo rating and opponent points. Overall, most points cluster reasonably close to the line, albeit a bit over it. The model appears to capture a general scoring range across teams, however there is a number of observations that fall noticeably above or below the line. This supports our earlier findings that the model struggles with teams that exhibit higher variance in performance or less linear scoring behavior. 
+
+
+```{r}
+# Graph by Team
+model <- lm(pts ~ opp_pts + elo_i, data = nba_bottom)
+nba_bottom$predicted_pts <- predict(model, newdata = nba_bottom)
+
+ggplot(nba_bottom, aes(x = pts, y = predicted_pts, color = fran_id)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  theme_fivethirtyeight() +
+  labs(title = "Top Five Actual vs. Predicted Points", x = "Points Scored", y = "Predicted Points", colour = "Franchise") +
+  theme(
+    axis.title.x = element_text(),
+    axis.title.y = element_text()
+  ) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dotted") + 
+  facet_wrap(~fran_id)
+```
+
+**Analysis**
+This plot breaks down the relationship between actual points scored and model-predicted points for the bottom five NBA teams. The Cavaliers trend lines is nearly flat, indicating the model predicts a very narrow range of scores, regardless of actual performance. The Grizzlies predicted points more closely tracks the actuals with a positive slope and minimal scatter, making them the most predictable team in this group. The Hornets trendline shows a moderate slope, but points are scattered across the diagonal, showing slightly conservation predictions on high-scoring games. The Sixers have a pretty strong slope, and relatively tight clustering, showing that the model captures their scoring dynamic fairly well, but there is some overprediction for lower scoring games. Finally, the Wizards model appears to struggle with a flatter trendline and greater vertical spread. 
+
+```{r}
+rmse(nba_bottom$pts, nba_bottom$predicted_pts)
+mae(nba_bottom$pts, nba_bottom$predicted_pts)
+```
+
+**Analysis**
+This is telling us that the Root Mean Squared Error is 13.43 and the Mean Absolute Error is 10.69. These values are noticeably higher than those for the top five teams (RMSE = 9.08, MAE = 7.39). This indicates that the model performs significantly worse on bottom ranked teams. This increased error suggests that scoring outcomes for these teams are more erratic or influenced by external factors not captured by the model. 
+
+
+
+# **Conclusion**
+
+My NBA mini project explored performance trends from 2000 to 2015 via data visualization and regression modeling, focusing on the league's top and bottom five scoring teams. By analyzing variables like points scored, opponent points, Elo ratings, and game locations, I sought to uncover patterns in team behavior, consistency, and predictability. The top five teams, Pacers, Spurs, Warriors, Celtics, and Mavericks, generally showed strong structure overall and more predictable relationships between performance metrics. Teams like the Spurs and Pacers stood out with higher R^2 values and steeper regression slopes. The regression model performed relatively well here suggesting that scoring could be reasonably predicted from variables like Elo rating and opponent points. Contrastingly, the bottom five teams, Cavaliers, Grizzlies, Hornets, Sixers, and Wizards, displayed more variability and inconsistency. The Grizzlies may have shown some predictable patterns, however, teams like the Cavaliers and Wizards showed very weak correlations. Furthermore, the regression model struggled more with these teams. This reinforces the idea that lower-ranked teams tend to have more erratic scoring dynamics, likely influenced by unstable rosters, coaching shifts, or less consistent defensive play. A notable finding was that Elo ratings did not show strong linear relationships with points scored for either top or bottom teams, highlighting the complexity of team performance and the multi-factorial nature of success in the NBA. Overall, while top teams follow more structured and predictable scoring patterns, bottom ranked teams tend to deviate from expected trends, making them more challenging to model and analyze. Future models could benefit from incorporating advanced features such as player-level stats, pace of play, and injury data to improve predictive power, especially for less consistent teams. 
+
+
+
+
+
+
+
+
+
