@@ -1,5 +1,8 @@
 # NBA Team Performance and Elo Trend Analysis
 
+## Live Project
+[View Full Analysis (RPubs)](https://rpubs.com/LindsayWhipple/NBAMiniProject)
+
 ## Overview
 This is a project from a course for my statistics major at St. Lawrence University. This project analyzes NBA team performance using Elo ratings to evaluate team strength over a period of time. Elo ratings provide a dynamic measure of team quality by updating rankings after each game based on expected and actual outcomes. 
 
