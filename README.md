@@ -31,6 +31,12 @@ Contains:
 - Upsets result in larger rating adjustments, reflecting unexpected outcomes
 - Elo provides a more dynamic view of team strength compared to static metrics
 
+## Key Insights
+- Teams with consistently high Elo ratings demonstrate sustained performance dominance
+- Elo ratings capture momentum shifts throughout the season
+- Upsets result in larger ratings adjustments, reflecting unexpected outcomes
+- Elo provides a more dynamic view of team strenght compared to static metrics
+
 ## Visualizations
 - Elo Rating Trends Over Time:
   ![Elo Trends](EloTrendsOverTime.png)
