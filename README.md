@@ -32,9 +32,14 @@ Contains:
 - Elo provides a more dynamic view of team strength compared to static metrics
 
 ## Visualizations
-- Elo rating trends over time
-- Team comparisons
-- Performance distributions
+- Elo Rating Trends Over Time:
+  ![Elo Trends](EloTrendsOverTime.png)
+  
+- Team Comparisons:
+  ![Team Comparisons](TeamComparisons.png)
+  
+- Performance Distributions:
+  ![Performance Distributions](PerformanceDistribution.png)
 
 ## How to Run
 1. Load dataset
